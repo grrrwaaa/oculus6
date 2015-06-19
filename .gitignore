@@ -41,3 +41,20 @@ $RECYCLE.BIN/
 Network Trash Folder
 Temporary Items
 .apdisk
+*.obj
+source/sysbuild/intermediate/Release_Win32/oculus/oculus.pdb
+*.tlog
+source/sysbuild/oculus.exp
+source/sysbuild/oculus.lib
+*.suo
+source/oculus.vcxproj.user
+*.lastbuildstate
+source/sysbuild/intermediate/Debug_Win32/oculus/oculus.lib
+*.idb
+*.manifest
+*.sdf
+source/max.oculus - Copy.c
+source/oculus - Copy.c
+*.pdb
+*.log
+source/sysbuild/intermediate/Debug_Win32/oculus/oculus.exp

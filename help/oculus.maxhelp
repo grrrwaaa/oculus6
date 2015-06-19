@@ -41,8 +41,9 @@
 					"id" : "obj-1",
 					"maxclass" : "newobj",
 					"numinlets" : 1,
-					"numoutlets" : 0,
-					"patching_rect" : [ 244.0, 243.0, 45.0, 22.0 ],
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 412.0, 96.0, 45.0, 22.0 ],
 					"style" : "",
 					"text" : "oculus"
 				}
