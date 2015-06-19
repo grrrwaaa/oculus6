@@ -58,3 +58,4 @@ source/oculus - Copy.c
 *.pdb
 *.log
 source/sysbuild/intermediate/Debug_Win32/oculus/oculus.exp
+*.opensdf

@@ -32,26 +32,51 @@ class t_oculus {
 public:
 	t_object	ob;	
 	void * ob3d;	
-		
+
+	void * outlet_q;
+	void * outlet_p;
+	void * outlet_p_info;
 	void * outlet_msg;
+
+	// the quaternion orientation of the HMD:
+	t_atom		quat[4];
+	t_atom		pos[3];
+
+	// attrs:
+    int			fullview;
+    double      predict;    // time (in ms) to predict ahead tracking
+	int			lowpersistence;
+	int			dynamicprediction;
 
 	// LibOVR objects:
     ovrHmd		hmd;
 		
 	t_oculus(t_symbol * dest_name, int index = 0) {
 		jit_ob3d_new(this, dest_name);
+
 		outlet_msg = outlet_new(this, 0);
+		outlet_p_info = outlet_new(&ob, 0);
+        outlet_p = listout(&ob);
+        outlet_q = listout(&ob);
+
+		atom_setfloat(quat+0, 0);
+        atom_setfloat(quat+1, 0);
+        atom_setfloat(quat+2, 0);
+        atom_setfloat(quat+3, 1);
+        
+        atom_setfloat(pos+0, 0.f);
+        atom_setfloat(pos+1, 0.f);
+        atom_setfloat(pos+2, 0.f);
 
 		hmd = 0;
-
-		/*
-		ovrResult result = ovrHmd_Create(index, &hmd);
-		if (result != ovrSuccess) {
-			object_warn(&ob, "failed to create HMD instance");
-			hmd = 0;
-		}
-		*/
-		/*
+		fullview = 1;
+		lowpersistence = 1;
+		dynamicprediction = 0;
+		
+		ovrResult result;
+		int32_t hmd_count = ovrHmd_Detect();
+		object_post(NULL, "%d HMDs detected", hmd_count);
+		
 		unsigned int hmdCaps = 0;
         
 		if (hmd_count <= 0) {
@@ -59,11 +84,12 @@ public:
 		} else if (index >= hmd_count) {
 			object_warn(&ob, "request for HMD %d out of range (only %d devices available)", index, hmd_count);
 		} else {
-			ovrResult result = ovrHmd_Create(index, &hmd);
+			result = ovrHmd_Create(index, &hmd);
 			if (result != ovrSuccess) {
 				object_warn(&ob, "failed to create HMD instance");
 				hmd = 0;
 			} else {
+				object_post(&ob, "acquired HMD");
 				hmdCaps = ovrHmd_GetEnabledCaps(hmd);
 				//if (!(hmdCaps & ovrHmdCap_Available)) {
 				//	object_error(&ob, "HMD in use by another application");
@@ -79,22 +105,18 @@ public:
 		}
         if (hmd == 0) {
             object_warn(&ob, "HMD not acquired, using offline DK2 simulator instead");
-            ovrResult result = ovrHmd_CreateDebug(ovrHmd_DK2, &hmd);
+            result = ovrHmd_CreateDebug(ovrHmd_DK2, &hmd);
 			if (result != ovrSuccess) {
 				hmd = 0;
 				object_error(&ob, "fatal error creating HMD");
 				return;
 			}
 		}
-		*/
 
-		ovrResult result = ovrHmd_CreateDebug(ovrHmd_DK2, &hmd);
+		result = ovrHmd_ConfigureTracking(hmd, ovrTrackingCap_Orientation|ovrTrackingCap_MagYawCorrection|ovrTrackingCap_Position, 0);
 		if (result != ovrSuccess) {
-			hmd = 0;
-			object_error(&ob, "fatal error creating HMD");
-			return;
+			object_error(&ob, "problem enabling tracking");
 		}
-		
 	}
     
     ~t_oculus() {
@@ -108,11 +130,142 @@ public:
 	}
 	
 	void configure() {
+		if (!hmd) {
+			object_warn(&ob, "No HMD to configure"); 
+			return;
+		}
+
+		t_atom a[4];
+
+		unsigned int hmdCaps = 0;
+		if (lowpersistence) hmdCaps |= ovrHmdCap_LowPersistence;
+		if (dynamicprediction) hmdCaps |= ovrHmdCap_DynamicPrediction;
+		ovrHmd_SetEnabledCaps(hmd, hmdCaps);
+		hmdCaps = ovrHmd_GetEnabledCaps(hmd);
+		lowpersistence = (hmdCaps & ovrHmdCap_LowPersistence) ? 1: 0;
+		dynamicprediction = (hmdCaps & ovrHmdCap_DynamicPrediction) ? 1 : 0;
+
+		// note serial:
+        atom_setsym(a, gensym(hmd->SerialNumber));
+        outlet_anything(outlet_msg, gensym("serial"), 1, a);
+
+		   
+    #define HMD_CASE(T) case T: { \
+            atom_setsym(a, gensym( #T )); \
+            outlet_anything(outlet_msg, gensym("hmdType"), 1, a); \
+            break; \
+        }
+        switch(hmd->Type) {
+                HMD_CASE(ovrHmd_DK1)
+                HMD_CASE(ovrHmd_DKHD)
+                HMD_CASE(ovrHmd_DK2)
+            default: {
+                atom_setsym(a, gensym("unknown"));
+                outlet_anything(outlet_msg, gensym("Type"), 1, a);
+            }
+        }
+    #undef HMD_CASE
+        
+        atom_setsym(a, gensym(hmd->Manufacturer));
+        outlet_anything(outlet_msg, gensym("Manufacturer"), 1, a);
+        atom_setsym(a, gensym(hmd->ProductName));
+        outlet_anything(outlet_msg, gensym("ProductName"), 1, a);
+        
+        atom_setlong(a, hmd->FirmwareMajor);
+        atom_setlong(a+1, hmd->FirmwareMinor);
+        outlet_anything(outlet_msg, gensym("Firmware"), 2, a);
+        
+        atom_setfloat(a, hmd->CameraFrustumHFovInRadians);
+        outlet_anything(outlet_msg, gensym("CameraFrustumHFovInRadians"), 1, a);
+        atom_setfloat(a, hmd->CameraFrustumVFovInRadians);
+        outlet_anything(outlet_msg, gensym("CameraFrustumVFovInRadians"), 1, a);
+        atom_setfloat(a, hmd->CameraFrustumNearZInMeters);
+        outlet_anything(outlet_msg, gensym("CameraFrustumNearZInMeters"), 1, a);
+        atom_setfloat(a, hmd->CameraFrustumFarZInMeters);
+        outlet_anything(outlet_msg, gensym("CameraFrustumFarZInMeters"), 1, a);
+        
+        atom_setlong(a, hmd->Resolution.w);
+        atom_setlong(a+1, hmd->Resolution.h);
+        outlet_anything(outlet_msg, gensym("Resolution"), 2, a);
+        
+        atom_setlong(a, hmd->EyeRenderOrder[0]);
+        outlet_anything(outlet_msg, gensym("EyeRenderOrder"), 1, a);
+
+/*
+    unsigned int HmdCaps;                      ///< Capability bits described by ovrHmdCaps.
+    unsigned int TrackingCaps;                 ///< Capability bits described by ovrTrackingCaps.
+    ovrFovPort   DefaultEyeFov[ovrEye_Count];  ///< Defines the recommended FOVs for the HMD.
+    ovrFovPort   MaxEyeFov[ovrEye_Count];      ///< Defines the maximum FOVs for the HMD.
+  */
+        atom_setlong(a, hmdCaps & lowpersistence);
+        outlet_anything(outlet_msg, gensym("lowpersistence"), 1, a);
+        atom_setlong(a, hmdCaps & dynamicprediction);
+        outlet_anything(outlet_msg, gensym("dynamicprediction"), 1, a);
+	}
+
+	void pose(double predict_ms = 0.) {
+		if (!hmd) return;
+		ovrTrackingState ts = ovrHmd_GetTrackingState(hmd, ovr_GetTimeInSeconds() + (predict_ms * 0.001));
+		
+		const ovrPoseStatef& predicted = ts.HeadPose;
+
+		//if (ts.StatusFlags & ovrStatus_PositionConnected) {
+		// this can be zero if the HMD is outside the camera frustum
+		// or is facing away from it
+		// or partially occluded
+		// or it is moving too fast
+		if (ts.StatusFlags & ovrStatus_PositionTracked) {
+			outlet_int(outlet_p_info, (t_atom_long)1);
+
+			// axis system of camera has ZX always parallel to ground (presumably by gravity)
+			// default origin is 1m in front of the camera (in +Z), but at the same height (even if camera is tilted)
+			
+			/*
+			 typedef struct ovrPoseStatef_
+			 {
+			 ovrPosef     ThePose;
+			 ovrVector3f  AngularVelocity;
+			 ovrVector3f  LinearVelocity;
+			 ovrVector3f  AngularAcceleration;
+			 ovrVector3f  LinearAcceleration;
+			 double       TimeInSeconds;         // Absolute time of this state sample.
+			 } ovrPoseStatef;
+			 */
+			
+			const ovrVector3f position = predicted.ThePose.Position;
+			
+			atom_setfloat(pos  , position.x);
+			atom_setfloat(pos+1, position.y);
+			atom_setfloat(pos+2, position.z);
+			outlet_list(outlet_p, 0L, 3, pos);
+			
+			// TODO: accessors for these:
+			// CameraPose is the pose of the camera relative to the origin
+			// LeveledCameraPose is the same but with roll & pitch zeroed out
+		} else {
+			outlet_int(outlet_p_info, (t_atom_long)0);
+			// is there some kind of predictive interpolation we can use here?
+			
+			outlet_list(outlet_p, 0L, 3, pos);
+		}
+
+		if (ts.StatusFlags & ovrStatus_OrientationTracked) {
+			const ovrQuatf& orient = predicted.ThePose.Orientation;
+			
+            atom_setfloat(quat  , orient.x);
+            atom_setfloat(quat+1, orient.y);
+            atom_setfloat(quat+2, orient.z);
+            atom_setfloat(quat+3, orient.w);
+
+			outlet_list(outlet_q, 0L, 4, quat);
+
+			
+		}
 
 	}
 
 	void bang() {
-
+		pose();
 	}
 
 	t_jit_err dest_changed() {
@@ -152,6 +305,10 @@ void oculus_bang(t_oculus * x) {
     x->bang();
 }
 
+void oculus_recenter(t_oculus * x) {
+    if (x->hmd) ovrHmd_RecenterPose(x->hmd);
+}
+
 void oculus_doconfigure(t_oculus *x) {
     x->configure();
 }
@@ -160,13 +317,60 @@ void oculus_configure(t_oculus *x) {
     defer_low(x, (method)oculus_doconfigure, 0, 0, 0);
 }
 
+t_max_err oculus_fullview_set(t_oculus *x, t_object *attr, long argc, t_atom *argv) {
+    x->fullview = atom_getlong(argv);
+    
+    oculus_configure(x);
+    return 0;
+}
+
+t_max_err oculus_lowpersistence_set(t_oculus *x, t_object *attr, long argc, t_atom *argv) {
+	x->lowpersistence = atom_getlong(argv);
+	
+	oculus_configure(x);
+	return 0;
+}
+
+t_max_err oculus_dynamicprediction_set(t_oculus *x, t_object *attr, long argc, t_atom *argv) {
+	x->dynamicprediction = atom_getlong(argv);
+	
+	oculus_configure(x);
+	return 0;
+}
+
+void oculus_assist(t_oculus *x, void *b, long m, long a, char *s)
+{
+    if (m == ASSIST_INLET) { // inlet
+        if (a == 0) {
+            sprintf(s, "messages in, bang to report orientation");
+        } else {
+            sprintf(s, "I am inlet %ld", a);
+        }
+    } else {	// outlet
+        if (a == 0) {
+            sprintf(s, "HMD orientation quaternion (list)");
+        } else if (a == 1) {
+            sprintf(s, "HMD position (list)");
+        } else if (a == 2) {
+            sprintf(s, "HMD position tracking status (messages)");
+        } else if (a == 3) {
+            sprintf(s, "HMD left eye properties (messages)");
+        } else if (a == 4) {
+            sprintf(s, "HMD left eye mesh (jit_matrix)");
+        } else if (a == 5) {
+            sprintf(s, "HMD right eye properties (messages)");
+        } else if (a == 6) {
+            sprintf(s, "HMD right eye mesh (jit_matrix)");
+        } else if (a == 7) {
+            sprintf(s, "HMD properties (messages)");
+        } else {
+            sprintf(s, "I am outlet %ld", a);
+        }
+    }
+}
 
 void oculus_free(t_oculus *x) {
     x->~t_oculus();
-    
-    // free resources associated with our obex entry
-    //jit_ob3d_free(x);
-    //max_jit_object_free(x);
 }
 
 void *oculus_new(t_symbol *s, long argc, t_atom *argv)
@@ -244,10 +448,7 @@ int C74_EXPORT main(void) {
 		return 0;
 	}
 	object_post(NULL, "initialized LibOVR %s", ovr_GetVersionString());
-	//quittask_install((method)oculus_quit, NULL);
-
-	//int32_t hmd_count = ovrHmd_Detect();
-	//object_post(NULL, "%d HMDs detected", hmd_count);
+	quittask_install((method)oculus_quit, NULL);
 	
     maxclass = class_new("oculus", (method)oculus_new, (method)oculus_free, (long)sizeof(t_oculus),
                          0L, A_GIMME, 0);
@@ -268,15 +469,14 @@ int C74_EXPORT main(void) {
 	
 	class_addmethod(maxclass, (method)oculus_bang, "bang", 0);
     class_addmethod(maxclass, (method)oculus_configure, "configure", 0);
-    /*
 	class_addmethod(maxclass, (method)oculus_assist, "assist", A_CANT, 0);
+    /*
     class_addmethod(maxclass, (method)oculus_notify, "notify", A_CANT, 0);
     
     //class_addmethod(maxclass, (method)oculus_jit_matrix, "jit_matrix", A_GIMME, 0); 
-    
+      */
     class_addmethod(maxclass, (method)oculus_recenter, "recenter", 0);
-    class_addmethod(maxclass, (method)oculus_dismiss, "dismiss", 0);
-    
+
     CLASS_ATTR_FLOAT(maxclass, "predict", 0, t_oculus, predict);
 	
     CLASS_ATTR_LONG(maxclass, "fullview", 0, t_oculus, fullview);
@@ -291,9 +491,7 @@ int C74_EXPORT main(void) {
 	CLASS_ATTR_ACCESSORS(maxclass, "dynamicprediction", NULL, oculus_dynamicprediction_set);
 	CLASS_ATTR_STYLE_LABEL(maxclass, "dynamicprediction", 0, "onoff", "enable dynamic prediction (may improve tracking)");
 
-	CLASS_ATTR_LONG(maxclass, "warning", 0, t_oculus, warning);
-    CLASS_ATTR_STYLE_LABEL(maxclass, "warning", 0, "onoff", "show health & safety warning");
-    */
+ 
 	
     class_register(CLASS_BOX, maxclass); 
     oculus_class = maxclass;
