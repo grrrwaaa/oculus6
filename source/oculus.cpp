@@ -95,6 +95,10 @@ public:
 		hmd = 0;
 		ovrSizei textureDim;
 		pTextureSet = 0;
+		
+		isVisible = true;
+		fbo = 0;
+		depth_rbo = 0;
 
 		fullview = 1;
 		lowpersistence = 1;
@@ -360,6 +364,11 @@ public:
 			object_error(&ob, "failed to create oculus texture set");
 			return JIT_ERR_GENERIC;
 		}
+		
+		if(fbo) glDeleteFramebuffersEXT(1, &fbo);
+		fbo = 0;
+		if(depth_rbo) glDeleteFramebuffersEXT(1, &depth_rbo);
+		depth_rbo = 0;
 
 		glGenFramebuffersEXT(1, &fbo);
 		glGenRenderbuffersEXT(1, &depth_rbo);
@@ -368,7 +377,9 @@ public:
 		//Attach 2D texture to this FBO
 		ovrGLTexture* tex = (ovrGLTexture*)&pTextureSet->Textures[pTextureSet->CurrentIndex];
 		GLuint oglid = tex->OGL.TexId;
+		glBindTexture(GL_TEXTURE_2D, oglid);	// is it necessary?
 		glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, oglid, 0);
+		glBindTexture(GL_TEXTURE_2D, 0);
 		
 		glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, depth_rbo);
 		glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT, GL_DEPTH_COMPONENT24, textureDim.w, textureDim.h);
@@ -400,34 +411,108 @@ public:
 		if (isVisible) {
 			// Increment to use next texture, just before writing
 			pTextureSet->CurrentIndex = (pTextureSet->CurrentIndex + 1) % pTextureSet->TextureCount;
+			ovrGLTexture* tex = (ovrGLTexture*)&pTextureSet->Textures[pTextureSet->CurrentIndex];
+			GLuint oglid = tex->OGL.TexId;
 			
 			//and now you can render to GL_TEXTURE_2D
 			glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fbo);
 			//Attach 2D texture to this FBO
-			ovrGLTexture* tex = (ovrGLTexture*)&pTextureSet->Textures[pTextureSet->CurrentIndex];
-			GLuint oglid = tex->OGL.TexId;
+			glBindTexture(GL_TEXTURE_2D, oglid);	// is it necessary?
 			glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, oglid, 0);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glBindTexture(GL_TEXTURE_2D, 0);
 			//Does the GPU support current FBO configuration?
 			GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT) == GL_FRAMEBUFFER_COMPLETE_EXT;
 			if (check_fbo()) {
 				
+				// save state
+				glPushAttrib(GL_VIEWPORT_BIT|GL_COLOR_BUFFER_BIT);
+				glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
+				
 				glClearColor(0.0, 0.0, 0.0, 0.0);
-				glClearDepth(1.0f);
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				glClear(GL_COLOR_BUFFER_BIT);
 
 				glViewport(0, 0, textureDim.w, textureDim.h);
+				glMatrixMode(GL_TEXTURE);
+				glPushMatrix();
+				glLoadIdentity();
+
 				glMatrixMode(GL_PROJECTION);
 				glLoadIdentity();
-				glOrtho(0.0, 1., 0.0, 1., -1.0, 1.0); 
+				glOrtho(0.0, 1., 0.0, 1., -1.0, 1.0);
+				
 				glMatrixMode(GL_MODELVIEW);
 				glLoadIdentity();
+				
 				//-------------------------
-				glDisable(GL_TEXTURE_2D);
 				glDisable(GL_BLEND);
-				glEnable(GL_DEPTH_TEST);
+				glDisable(GL_DEPTH_TEST);
+				glDisable(GL_LIGHTING);
 			
+				
+				//glEnable(GL_TEXTURE_2D);
 				//glBindTexture(GL_TEXTURE_2D, glid);
+				
+//				glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+//				glTexParameterf( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+//				glTexParameterf( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+//				glTexParameterf( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE );
+//				glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+//				glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+				
+//				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+//				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+//				glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+//				glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
+				
+//				 GLfloat verts[] = {
+//				 0.0,(GLfloat)height,
+//				 (GLfloat)width,(GLfloat)height,
+//				 (GLfloat)width,0.0,
+//				 0.0,0.0
+//				 };
+//				 
+//				 GLfloat tex_coords[] = {
+//				 0.0, (GLfloat)height,
+//				 (GLfloat)width*x->width_scale, (GLfloat)height,
+//				 (GLfloat)width*x->width_scale, 0.0,
+//				 0.0, 0.0
+//				 };
+//				 if(!x->ownsoutput && x->dsttexflipped) {
+//				 tex_coords[1]=0;
+//				 tex_coords[3]=0;
+//				 tex_coords[5]=height;
+//				 tex_coords[7]=height;
+//				 }
+//				 if(x->target == GL_TEXTURE_2D) {
+//				 tex_coords[1] /= (float)x->backingHeight;
+//				 tex_coords[3] /= (float)x->backingHeight;
+//				 tex_coords[5] /= (float)x->backingHeight;
+//				 tex_coords[7] /= (float)x->backingHeight;
+//				 tex_coords[2] /= (float)x->backingWidth;
+//				 tex_coords[4] /= (float)x->backingWidth;
+//				 }
+//				 
+//				 glEnable(x->target);
+//				 if(x->source_type == VIDTEX_SOURCE_YUV420)
+//				 fbo_texture_bind_yuv420(x);
+//				 else if (x->source_type == VIDTEX_SOURCE_YUV422)
+//				 fbo_texture_bind_yuv422(x);
+//				 else
+//				 glBindTexture(x->target,x->srctex);
+//				 
+//				 glClientActiveTextureARB(GL_TEXTURE0_ARB);
+//				 glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+//				 glTexCoordPointer(2, GL_FLOAT, 0, tex_coords );
+//				 glEnableClientState(GL_VERTEX_ARRAY);		
+//				 glVertexPointer(2, GL_FLOAT, 0, verts );
+//				 
+//				 glDrawArrays( GL_TRIANGLE_FAN, 0, 4 );
+				
 				// render quad:
 				glColor3d(1., 0., 1.);
 				glBegin(GL_QUADS);
@@ -437,8 +522,13 @@ public:
 					glVertex2d(0., 1.);
 				glEnd();
 
+				jit_gl_report_error("oculus fbo draw end");
 			
 				//glBindTexture(GL_TEXTURE_2D, 0);
+				//glDisable(GL_TEXTURE_2D);
+				
+				glPopClientAttrib();
+				glPopAttrib();
 
 				glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
 			
@@ -712,6 +802,23 @@ int C74_EXPORT main(void) {
     
 	long ob3d_flags = JIT_OB3D_NO_MATRIXOUTPUT 
 					| JIT_OB3D_DOES_UI;
+	
+	/*
+	 JIT_OB3D_NO_ROTATION_SCALE;
+	 ob3d_flags |= JIT_OB3D_NO_POLY_VARS;
+	 ob3d_flags |= JIT_OB3D_NO_BLEND;
+	 ob3d_flags |= JIT_OB3D_NO_TEXTURE;
+	 ob3d_flags |= JIT_OB3D_NO_MATRIXOUTPUT;
+	 ob3d_flags |= JIT_OB3D_AUTO_ONLY;
+	 ob3d_flags |= JIT_OB3D_NO_DEPTH;
+	 ob3d_flags |= JIT_OB3D_NO_ANTIALIAS;
+	 ob3d_flags |= JIT_OB3D_NO_FOG;
+	 ob3d_flags |= JIT_OB3D_NO_LIGHTING_MATERIAL;
+	 ob3d_flags |= JIT_OB3D_NO_SHADER;
+	 ob3d_flags |= JIT_OB3D_NO_BOUNDS;
+	 ob3d_flags |= JIT_OB3D_NO_COLOR;
+	 */
+	
 	void * ob3d = jit_ob3d_setup(maxclass, calcoffset(t_oculus, ob3d), ob3d_flags);
 	// define our OB3D draw methods
 	jit_class_addmethod(maxclass, (method)(oculus_draw), "ob3d_draw", A_CANT, 0L);
