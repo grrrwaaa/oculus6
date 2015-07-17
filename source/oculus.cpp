@@ -1,6 +1,14 @@
 /**
 	@file
 	oculus - a max object
+
+	Binding to the Oculus 0.6 beta SDK
+
+	Done:
+		Orientation/position tracking 
+
+	Todo:
+		
  */
 
 #ifdef __cplusplus
@@ -25,7 +33,10 @@ extern "C" {
 t_class *oculus_class;
 static t_symbol * ps_quat;
 static t_symbol * ps_pos;
+static t_symbol * ps_viewport;
+static t_symbol * ps_frustum;
 static t_symbol * ps_warning;
+static t_symbol * ps_glid;
 
 
 class t_oculus {
@@ -33,9 +44,12 @@ public:
 	t_object	ob;	
 	void * ob3d;	
 
-	void * outlet_q;
-	void * outlet_p;
-	void * outlet_p_info;
+	//void * outlet_q;
+	//void * outlet_p;
+	//void * outlet_p_info;
+
+	void * outlet_eye[2];
+
 	void * outlet_msg;
 
 	// the quaternion orientation of the HMD:
@@ -50,14 +64,24 @@ public:
 
 	// LibOVR objects:
     ovrHmd		hmd;
+	ovrSizei	textureDim;
+	ovrSwapTextureSet * pTextureSet; 
+	ovrEyeRenderDesc eyeRenderDesc[2];
+	ovrVector3f      hmdToEyeViewOffset[2];
+	ovrLayerEyeFov layer;
+	bool isVisible;
+
+	GLuint fbo, depth_rbo;
 		
 	t_oculus(t_symbol * dest_name, int index = 0) {
 		jit_ob3d_new(this, dest_name);
 
 		outlet_msg = outlet_new(this, 0);
-		outlet_p_info = outlet_new(&ob, 0);
-        outlet_p = listout(&ob);
-        outlet_q = listout(&ob);
+        outlet_eye[1] = outlet_new(this, 0);
+        outlet_eye[0] = outlet_new(this, 0);
+		//outlet_p_info = outlet_new(&ob, 0);
+        //outlet_p = listout(&ob);
+        //outlet_q = listout(&ob);
 
 		atom_setfloat(quat+0, 0);
         atom_setfloat(quat+1, 0);
@@ -69,6 +93,9 @@ public:
         atom_setfloat(pos+2, 0.f);
 
 		hmd = 0;
+		ovrSizei textureDim;
+		pTextureSet = 0;
+
 		fullview = 1;
 		lowpersistence = 1;
 		dynamicprediction = 0;
@@ -201,12 +228,274 @@ public:
         outlet_anything(outlet_msg, gensym("lowpersistence"), 1, a);
         atom_setlong(a, hmdCaps & dynamicprediction);
         outlet_anything(outlet_msg, gensym("dynamicprediction"), 1, a);
+		 
+		
+		// Configure Stereo settings.
+		float pixeldensity = 1.0f; // TODO attributify
+		ovrSizei recommenedTex0Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Left, 
+																hmd->DefaultEyeFov[0], pixeldensity);
+		ovrSizei recommenedTex1Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Right,
+																hmd->DefaultEyeFov[1], pixeldensity);
+		textureDim.w  = recommenedTex0Size.w + recommenedTex1Size.w;
+		textureDim.h = MAX ( recommenedTex0Size.h, recommenedTex1Size.h );
+
+        atom_setlong(a, textureDim.w);
+        atom_setlong(a+1, textureDim.h);
+        outlet_anything(outlet_msg, gensym("TextureDim"), 2, a);
+
+		// Initialize VR structures, filling out description.
+		eyeRenderDesc[0]      = ovrHmd_GetRenderDesc(hmd, ovrEye_Left, hmd->DefaultEyeFov[0]);
+		eyeRenderDesc[1]      = ovrHmd_GetRenderDesc(hmd, ovrEye_Right, hmd->DefaultEyeFov[1]);
+		hmdToEyeViewOffset[0] = eyeRenderDesc[0].HmdToEyeViewOffset;
+		hmdToEyeViewOffset[1] = eyeRenderDesc[1].HmdToEyeViewOffset;
+
+		// Initialize our single full screen Fov layer.
+		layer.Header.Type      = ovrLayerType_EyeFov;
+		layer.Header.Flags     = 0;
+		layer.ColorTexture[0]  = pTextureSet;
+		layer.ColorTexture[1]  = pTextureSet;
+		layer.Fov[0]           = eyeRenderDesc[0].Fov;
+		layer.Fov[1]           = eyeRenderDesc[1].Fov;
+		ovrRecti vp;
+		vp.Size.w = textureDim.w/2;
+		vp.Size.h = textureDim.h;
+		vp.Pos.x = 0;
+		vp.Pos.y = 0;
+		layer.Viewport[0]      = vp;
+		vp.Pos.x = textureDim.w / 2;
+		layer.Viewport[1]      = vp;
+		// ld.RenderPose is updated later per frame.
+			
+	}
+	
+	
+
+	void bang() {
+		t_atom a[6];
+
+		if (!hmd) return;
+
+		// Get both eye poses simultaneously, with IPD offset already included.
+		ovrFrameTiming   ftiming  = ovrHmd_GetFrameTiming(hmd, 0);
+		ovrTrackingState ts = ovrHmd_GetTrackingState(hmd, ftiming.DisplayMidpointSeconds);
+		ovr_CalcEyePoses(ts.HeadPose.ThePose, hmdToEyeViewOffset, layer.RenderPose);
+
+		for (int eye = 0; eye < 2; eye++) {
+
+			// TODO: we could have a position & rotation attribute on [oculus] to apply a world-pose to these.
+
+			const ovrVector3f& pos = layer.RenderPose[eye].Position;
+			const ovrQuatf& orient = layer.RenderPose[eye].Orientation;
+			const ovrFovPort& fovport = layer.Fov[eye]; // not just a number -- it's an asymetric fov!
+			const ovrRecti& viewport = layer.Viewport[eye];
+
+			// output this information to trigger a render for this eye.
+			
+			atom_setfloat(a  , viewport.Pos.x);
+			atom_setfloat(a+1, viewport.Pos.y);
+			atom_setfloat(a+2, viewport.Size.w);
+			atom_setfloat(a+3, viewport.Size.h);
+			outlet_anything(outlet_eye[eye], ps_viewport, 4, a);
+			
+			// @frustum needs 6 values (adding near & far), and also maybe these values should be scaled by far?
+			atom_setfloat(a  , fovport.LeftTan);
+			atom_setfloat(a+1, fovport.RightTan);
+			atom_setfloat(a+2, fovport.DownTan);
+			atom_setfloat(a+3, fovport.UpTan);
+			outlet_anything(outlet_eye[eye], ps_frustum, 4, a);
+
+			atom_setfloat(a  , pos.x);
+			atom_setfloat(a+1, pos.y);
+			atom_setfloat(a+2, pos.z);
+			outlet_anything(outlet_eye[eye], ps_pos, 3, a);
+
+			atom_setfloat(a  , orient.x);
+			atom_setfloat(a+1, orient.y);
+			atom_setfloat(a+2, orient.z);
+			atom_setfloat(a+3, orient.w);
+			outlet_anything(outlet_eye[eye], ps_quat, 4, a);
+
+			// trigger a render:
+			outlet_anything(outlet_eye[eye], _sym_bang, 0, NULL);
+		}
+
+		// output a final bang?
 	}
 
-	void pose(double predict_ms = 0.) {
-		if (!hmd) return;
-		ovrTrackingState ts = ovrHmd_GetTrackingState(hmd, ovr_GetTimeInSeconds() + (predict_ms * 0.001));
+	bool check_fbo() {
+		GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
+		if (status != GL_FRAMEBUFFER_COMPLETE_EXT) {
+			if (status == GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT_EXT) {
+				object_error(&ob, "failed to create render to texture target GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT");
+			} else if (status == GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS_EXT) {
+				object_error(&ob, "failed to create render to texture target GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS");
+			} else if (status == GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT_EXT) {
+				object_error(&ob, "failed to create render to texture target GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT");
+			} else if (status == GL_FRAMEBUFFER_UNSUPPORTED_EXT) {
+				object_error(&ob, "failed to create render to texture target GL_FRAMEBUFFER_UNSUPPORTED");
+			} else {
+				object_error(&ob, "failed to create render to texture target %d", status);
+			} 
+			return false;
+		}
+		return true;
+	}
+
+	t_jit_err dest_changed() {
 		
+		object_post(&ob, "dest_changed");
+
+		// TODO: maybe this needs to be triggered again after a configure()
+		// (but need to wait until GL context is valid)
+
+		// trash the old one
+		if (pTextureSet) {
+			ovrHmd_DestroySwapTextureSet(hmd, pTextureSet);
+			pTextureSet = 0;
+		}
+
+		if (ovrHmd_CreateSwapTextureSetGL(hmd, GL_RGBA, textureDim.w, textureDim.h,
+                                      &pTextureSet) != ovrSuccess) {
+			pTextureSet = 0;
+			object_error(&ob, "failed to create oculus texture set");
+			return JIT_ERR_GENERIC;
+		}
+
+		glGenFramebuffersEXT(1, &fbo);
+		glGenRenderbuffersEXT(1, &depth_rbo);
+		
+		glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fbo);
+		//Attach 2D texture to this FBO
+		ovrGLTexture* tex = (ovrGLTexture*)&pTextureSet->Textures[pTextureSet->CurrentIndex];
+		GLuint oglid = tex->OGL.TexId;
+		glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, oglid, 0);
+		
+		glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, depth_rbo);
+		glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT, GL_DEPTH_COMPONENT24, textureDim.w, textureDim.h);
+		//Attach depth buffer to FBO
+		glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT_EXT, GL_RENDERBUFFER_EXT, depth_rbo);
+		//Does the GPU support current FBO configuration?
+		if (!check_fbo()) {
+			glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, 0);
+			glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+			return JIT_ERR_GENERIC;
+		}
+
+		glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, 0);
+		glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+
+		return JIT_ERR_NONE;
+	}
+
+	void jit_gl_texture(t_symbol * s) {
+		if (!hmd) return;
+		if (!pTextureSet) return;	// no texture to copy to.
+
+		void * texob = jit_object_findregistered(s);
+		if (!texob) return;	// no texture to copy from.
+
+		long glid = jit_attr_getlong(texob, ps_glid);
+
+		// false if the VR app is not currently being displayed on the HMD
+		if (isVisible) {
+			// Increment to use next texture, just before writing
+			pTextureSet->CurrentIndex = (pTextureSet->CurrentIndex + 1) % pTextureSet->TextureCount;
+			
+			//and now you can render to GL_TEXTURE_2D
+			glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fbo);
+			//Attach 2D texture to this FBO
+			ovrGLTexture* tex = (ovrGLTexture*)&pTextureSet->Textures[pTextureSet->CurrentIndex];
+			GLuint oglid = tex->OGL.TexId;
+			glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, oglid, 0);
+			//Does the GPU support current FBO configuration?
+			GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT) == GL_FRAMEBUFFER_COMPLETE_EXT;
+			if (check_fbo()) {
+				
+				glClearColor(0.0, 0.0, 0.0, 0.0);
+				glClearDepth(1.0f);
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+				glViewport(0, 0, textureDim.w, textureDim.h);
+				glMatrixMode(GL_PROJECTION);
+				glLoadIdentity();
+				glOrtho(0.0, 1., 0.0, 1., -1.0, 1.0); 
+				glMatrixMode(GL_MODELVIEW);
+				glLoadIdentity();
+				//-------------------------
+				glDisable(GL_TEXTURE_2D);
+				glDisable(GL_BLEND);
+				glEnable(GL_DEPTH_TEST);
+			
+				//glBindTexture(GL_TEXTURE_2D, glid);
+
+				// render quad:
+				glColor3d(1., 0., 1.);
+				glBegin(GL_QUADS);
+					glVertex2d(0., 0.);
+					glVertex2d(1., 0.);
+					glVertex2d(1., 1.);
+					glVertex2d(0., 1.);
+				glEnd();
+
+			
+				//glBindTexture(GL_TEXTURE_2D, 0);
+
+				glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+			
+				// mipmaps?
+				//glBindTexture(GL_TEXTURE_2D, oglid);
+				//glGenerateMipmapEXT(GL_TEXTURE_2D);
+				//glBindTexture(GL_TEXTURE_2D, 0);
+
+			} else {
+				glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+			} 
+		} 
+		// Submit frame with one layer we have.
+		ovrLayerHeader* layers = &layer.Header;
+		isVisible = (ovrHmd_SubmitFrame(hmd, 0, nullptr, &layers, 1) == ovrSuccess);
+
+		//object_post(&ob, "visible %d", (int)isVisible);
+	}
+	
+	t_jit_err draw() {
+		// this gets called, but not really sure what it should do.
+		// probably nothing... 
+		//object_post(&ob, "draw");
+
+		return JIT_ERR_NONE;
+	}
+	
+	t_jit_err dest_closing() {	
+		object_post(&ob, "dest_closing");
+		
+		glDeleteRenderbuffersEXT(1, &depth_rbo);
+		depth_rbo = 0;
+		//Bind 0, which means render to back buffer, as a result, fb is unbound
+		glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+		glDeleteFramebuffersEXT(1, &fbo);
+		fbo = 0;
+		
+		return JIT_ERR_NONE;
+	}
+	
+	t_jit_err ui(t_line_3d *p_line, t_wind_mouse_info *p_mouse) {
+		/*
+		post("line (%f,%f,%f)-(%f,%f,%f); mouse(%s)",
+			p_line->u[0], p_line->u[1], p_line->u[2], 
+			p_line->v[0], p_line->v[1], p_line->v[2], 
+			p_mouse->mousesymbol->s_name			// mouse, mouseidle
+		);
+		*/
+		return JIT_ERR_NONE;
+	}
+	
+	/*
+	// not used by rendering, but maybe useful for other purposes
+	void pose(double ms = 0.) {
+		if (!hmd) return;
+
+		ovrTrackingState ts = ovrHmd_GetTrackingState(hmd, ms*0.001);
 		const ovrPoseStatef& predicted = ts.HeadPose;
 
 		//if (ts.StatusFlags & ovrStatus_PositionConnected) {
@@ -219,19 +508,7 @@ public:
 
 			// axis system of camera has ZX always parallel to ground (presumably by gravity)
 			// default origin is 1m in front of the camera (in +Z), but at the same height (even if camera is tilted)
-			
-			/*
-			 typedef struct ovrPoseStatef_
-			 {
-			 ovrPosef     ThePose;
-			 ovrVector3f  AngularVelocity;
-			 ovrVector3f  LinearVelocity;
-			 ovrVector3f  AngularAcceleration;
-			 ovrVector3f  LinearAcceleration;
-			 double       TimeInSeconds;         // Absolute time of this state sample.
-			 } ovrPoseStatef;
-			 */
-			
+
 			const ovrVector3f position = predicted.ThePose.Position;
 			
 			atom_setfloat(pos  , position.x);
@@ -263,37 +540,7 @@ public:
 		}
 
 	}
-
-	void bang() {
-		pose();
-	}
-
-	t_jit_err dest_changed() {
-		
-		return JIT_ERR_NONE;
-	}
-	
-	t_jit_err draw() {
-		return JIT_ERR_NONE;
-	}
-	
-	t_jit_err dest_closing() {	
-		
-		
-		return JIT_ERR_NONE;
-	}
-	
-	t_jit_err ui(t_line_3d *p_line, t_wind_mouse_info *p_mouse) {
-		/*
-		post("line (%f,%f,%f)-(%f,%f,%f); mouse(%s)",
-			p_line->u[0], p_line->u[1], p_line->u[2], 
-			p_line->v[0], p_line->v[1], p_line->v[2], 
-			p_mouse->mousesymbol->s_name			// mouse, mouseidle
-		);
-		*/
-		return JIT_ERR_NONE;
-	}
-	
+	*/
 };
 
 t_jit_err oculus_draw(t_oculus * x) { return x->draw(); }
@@ -304,6 +551,13 @@ t_jit_err oculus_dest_changed(t_oculus * x) { return x->dest_changed(); }
 void oculus_bang(t_oculus * x) {
     x->bang();
 }
+
+void oculus_jit_gl_texture(t_oculus * x, t_symbol * s, long argc, t_atom * argv) {
+	if (argc > 0 && atom_gettype(argv) == A_SYM) {
+		x->jit_gl_texture(atom_getsym(argv));
+	}
+}
+
 
 void oculus_recenter(t_oculus * x) {
     if (x->hmd) ovrHmd_RecenterPose(x->hmd);
@@ -413,7 +667,10 @@ int C74_EXPORT main(void) {
 	common_symbols_init();
     ps_quat = gensym("quat");
     ps_pos = gensym("pos");
+    ps_viewport = gensym("viewport");
+    ps_frustum = gensym("frustum");
 	ps_warning = gensym("warning");
+	ps_glid = gensym("glid");
 
 	ovrInitParams params;
 	params.Flags = 0;
@@ -474,8 +731,12 @@ int C74_EXPORT main(void) {
     class_addmethod(maxclass, (method)oculus_notify, "notify", A_CANT, 0);
     
     //class_addmethod(maxclass, (method)oculus_jit_matrix, "jit_matrix", A_GIMME, 0); 
+
       */
     class_addmethod(maxclass, (method)oculus_recenter, "recenter", 0);
+
+	
+    class_addmethod(maxclass, (method)oculus_jit_gl_texture, "jit_gl_texture", A_GIMME, 0); 
 
     CLASS_ATTR_FLOAT(maxclass, "predict", 0, t_oculus, predict);
 	

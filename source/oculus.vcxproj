@@ -141,7 +141,7 @@
       <ImportLibrary>sysbuild\$(ProjectName).lib</ImportLibrary>
       <TargetMachine>MachineX86</TargetMachine>
       <AdditionalLibraryDirectories>LibOVR\Lib\Windows\Win32\Release\VS2012;max-sdk\source\c74support\jit-includes;max-sdk\source\c74support\msp-includes;max-sdk\source\c74support\max-includes;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>LibOVR.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>LibOVR.lib;opengl32.lib;glu32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -182,7 +182,7 @@
       <ImportLibrary>sysbuild\$(ProjectName).lib</ImportLibrary>
       <TargetMachine>MachineX64</TargetMachine>
       <AdditionalLibraryDirectories>LibOVR\Lib\Windows\x64\Release\VS2012;max-sdk\source\c74support\jit-includes\x64;max-sdk\source\c74support\msp-includes\x64;max-sdk\source\c74support\max-includes\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>LibOVR.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>LibOVR.lib;opengl32.lib;glu32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -229,7 +229,7 @@
       <ImportLibrary>sysbuild\$(ProjectName).lib</ImportLibrary>
       <TargetMachine>MachineX86</TargetMachine>
       <AdditionalLibraryDirectories>LibOVR\Lib\Windows\Win32\Release\VS2012;max-sdk\source\c74support\jit-includes;max-sdk\source\c74support\msp-includes;max-sdk\source\c74support\max-includes;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>LibOVR.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>LibOVR.lib;opengl32.lib;glu32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -277,7 +277,7 @@
       <ImportLibrary>sysbuild\$(ProjectName).lib</ImportLibrary>
       <TargetMachine>MachineX64</TargetMachine>
       <AdditionalLibraryDirectories>LibOVR\Lib\Windows\x64\Release\VS2012;max-sdk\source\c74support\jit-includes\x64;max-sdk\source\c74support\msp-includes\x64;max-sdk\source\c74support\max-includes\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>LibOVR.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>LibOVR.lib;opengl32.lib;glu32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
