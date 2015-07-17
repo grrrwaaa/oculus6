@@ -249,9 +249,9 @@
 					"numinlets" : 1,
 					"numoutlets" : 2,
 					"outlettype" : [ "jit_gl_texture", "" ],
-					"patching_rect" : [ 325.0, 244.0, 165.0, 22.0 ],
+					"patching_rect" : [ 325.0, 244.0, 240.0, 22.0 ],
 					"style" : "",
-					"text" : "jit.gl.texture oculus @name L"
+					"text" : "jit.gl.texture oculus @name L @rectangle 0"
 				}
 
 			}
@@ -383,6 +383,19 @@
 				}
 
 			}
+, 			{
+				"box" : 				{
+					"attr" : "rectangle",
+					"id" : "obj-6",
+					"maxclass" : "attrui",
+					"numinlets" : 1,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 437.0, 214.0, 150.0, 22.0 ],
+					"style" : ""
+				}
+
+			}
  ],
 		"lines" : [ 			{
 				"patchline" : 				{
@@ -507,6 +520,15 @@
 					"disabled" : 0,
 					"hidden" : 0,
 					"source" : [ "obj-5", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-13", 0 ],
+					"disabled" : 0,
+					"hidden" : 0,
+					"source" : [ "obj-6", 0 ]
 				}
 
 			}

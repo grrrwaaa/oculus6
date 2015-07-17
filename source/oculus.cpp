@@ -78,10 +78,10 @@ public:
 	// LibOVR objects:
     ovrHmd		hmd;
 	ovrSizei	hmdTextureDim;
-	ovrSwahmdTextureSet * hmdTextureSet; 
-	ovrhmdEyeRenderDesc hmdEyeRenderDesc[2];
+	ovrSwapTextureSet * hmdTextureSet; 
+	ovrEyeRenderDesc hmdEyeRenderDesc[2];
 	ovrVector3f      hmdToEyeViewOffset[2];
-	ovrhmdLayerEyeFov hmdLayer;
+	ovrLayerEyeFov hmdLayer;
 	bool hmdIsVisible;
 
 	GLuint fbo, rbo;
@@ -267,7 +267,7 @@ public:
 		hmdToEyeViewOffset[1] = hmdEyeRenderDesc[1].HmdToEyeViewOffset;
 
 		// Initialize our single full screen Fov hmdLayer.
-		hmdLayer.Header.Type      = ovrhmdLayerType_EyeFov;
+		hmdLayer.Header.Type      = ovrLayerType_EyeFov;
 		hmdLayer.Header.Flags     = 0;
 		hmdLayer.ColorTexture[0]  = hmdTextureSet;
 		hmdLayer.ColorTexture[1]  = hmdTextureSet;
@@ -367,11 +367,11 @@ public:
 
 		// trash the old one
 		if (hmdTextureSet) {
-			ovrHmd_DestroySwahmdTextureSet(hmd, hmdTextureSet);
+			ovrHmd_DestroySwapTextureSet(hmd, hmdTextureSet);
 			hmdTextureSet = 0;
 		}
 
-		if (ovrHmd_CreateSwahmdTextureSetGL(hmd, GL_RGBA, hmdTextureDim.w, hmdTextureDim.h,
+		if (ovrHmd_CreateSwapTextureSetGL(hmd, GL_RGBA, hmdTextureDim.w, hmdTextureDim.h,
                                       &hmdTextureSet) != ovrSuccess) {
 			hmdTextureSet = 0;
 			object_error(&ob, "failed to create oculus texture set");
@@ -428,9 +428,9 @@ public:
 			GLuint oglid = tex->OGL.TexId;
 			
 			// rather than the FBO thing, we could sanity-check with a simple glCopyImageSubData
-			if (true) {
-			
-				glCopyImageSubData(glid,
+			if (false) {
+				/* not available in Max Jitter API
+				glCopyImageSubDataEXT(glid,
 								   GL_TEXTURE_2D, // GL_TEXTURE_2D or GL_TEXTURE_RECTANGLE?
 								   0, //GLint srcLevel,
 								   0, //GLint srcX,
@@ -444,21 +444,23 @@ public:
 								   0, //GLint dstZ,
 								   hmdTextureDim.w, //GLsizei srcWidth,
 								   hmdTextureDim.h, //GLsizei srcHeight,
-								   1, //GLsizei srcDepth
+								   1 //GLsizei srcDepth
 								   );
+				*/
 			} else if (false) {
-				
+				/* not available in Max Jitter API :-(
 				// FBO blit:
-				glBindFramebufferEXT(GL_FRAMEBUFFER, fbo);
-				glFramebufferTexture2DEXT(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+				glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fbo);
+				glFramebufferTexture2DEXT(GL_READ_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0,
 									   GL_TEXTURE_2D, glid, 0);
-				glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT1,
+				glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT1,
 									   GL_TEXTURE_2D, oglid, 0);
 				glDrawBuffer(GL_COLOR_ATTACHMENT1);
 				glBlitFramebufferEXT (0, 0, hmdTextureDim.w, hmdTextureDim.h,
 									  0, 0, hmdTextureDim.w, hmdTextureDim.w,
 									  GL_COLOR_BUFFER_BIT, GL_NEAREST);
 				glBindFramebufferEXT(GL_FRAMEBUFFER, 0);
+				*/
 			} else {
 				//and now you can render to GL_TEXTURE_2D
 				glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fbo);
@@ -475,8 +477,8 @@ public:
 				if (check_fbo()) {
 					
 					// save state
-					glPushAttrib(GL_VIEWPORT_BIT|GL_COLOR_BUFFER_BIT);
-					glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
+					//glPushAttrib(GL_VIEWPORT_BIT|GL_COLOR_BUFFER_BIT);
+					//glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
 					
 					glClearColor(0.0, 0.0, 0.0, 0.0);
 					glClear(GL_COLOR_BUFFER_BIT);
@@ -568,13 +570,13 @@ public:
 						glVertex2d(0., 1.);
 					glEnd();
 
-					jit_gl_report_error("oculus fbo draw end");
+					//jit_gl_report_error("oculus fbo draw end");
 				
 					//glBindTexture(GL_TEXTURE_2D, 0);
 					//glDisable(GL_TEXTURE_2D);
 					
-					glPopClientAttrib();
-					glPopAttrib();
+					//glPopClientAttrib();
+					//glPopAttrib();
 
 					glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
 				
@@ -582,13 +584,14 @@ public:
 					//glBindTexture(GL_TEXTURE_2D, oglid);
 					//glGenerateMipmapEXT(GL_TEXTURE_2D);
 					//glBindTexture(GL_TEXTURE_2D, 0);
-				}
-			} else {
-				glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
-			} 
+				
+				} else {
+					glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+				} 
+			}
 		} 
 		// Submit frame with one hmdLayer we have.
-		ovrhmdLayerHeader* hmdLayers = &hmdLayer.Header;
+		ovrLayerHeader* hmdLayers = &hmdLayer.Header;
 		hmdIsVisible = (ovrHmd_SubmitFrame(hmd, 0, nullptr, &hmdLayers, 1) == ovrSuccess);
 		
 		if (!hmdIsVisible) object_post(&ob, "visible %d", (int)hmdIsVisible);
